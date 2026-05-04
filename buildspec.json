@@ -32,14 +32,14 @@
         }
     },
     "platformConfig": {
-        "macos": {
-            "bundleId": "com.example.plugintemplate-for-obs"
-        }
+      "macos": {
+        "bundleId": "com.tracery-plugin-for-obs.plugin"
+      }
     },
-    "name": "plugintemplate-for-obs",
-    "displayName": "Plugin Template for OBS",
+    "name": "tracery-plugin-for-obs",
+    "displayName": "Tracery Plugin for OBS",
     "version": "1.0.0",
-    "author": "Your Name Here",
-    "website": "https://example.com",
-    "email": "me@example.com"
+    "author": "kiraping",
+    "website": " ",
+    "email": " "
 }
