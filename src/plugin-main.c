@@ -60,6 +60,29 @@ struct tracery_data {
 	uint32_t box_color;
 	uint32_t line_color;
 	uint32_t marker_color;
+
+	bool show_lines;
+	bool show_boxes;
+	bool show_labels;
+
+	char font_name[256];
+	int font_size;
+	bool text_outline;
+	uint32_t outline_color;
+	int outline_thickness;
+	uint32_t text_color;
+
+	int scan_step;
+	int frame_skip;
+	int frame_counter;
+
+	gs_texrender_t *texrender;
+
+	int min_blob_size;
+
+	struct blob prev_blobs[MAX_BLOBS];
+	int prev_blob_count;
+	float smoothing;
 };
 
 static const char *filter_get_name(void *unused)
@@ -80,20 +103,33 @@ static obs_properties_t *filter_properties(void *unused)
 {
 	UNUSED_PARAMETER(unused);
 	obs_properties_t *props = obs_properties_create();
+
 	obs_properties_add_color(props, "key_color", "Key Color");
 	obs_properties_add_int_slider(props, "threshold", "Threshold", 0, 255, 1);
+	obs_properties_add_float_slider(props, "smoothing", "Smoothing", 0.0f, 0.95f, 0.05f);
 	obs_properties_add_int_slider(props, "min_distance", "Min Distance", 1, 500, 1);
+	obs_properties_add_int_slider(props, "min_blob_size", "Min Blob Size", 1, 200, 1);
+	obs_properties_add_int_slider(props, "scan_step", "Detection Quality (1=best)", 1, 8, 1);
+	obs_properties_add_int_slider(props, "frame_skip", "Update Every N Frames", 1, 10, 1);
 	obs_properties_add_color(props, "box_color", "Box Color");
 	obs_properties_add_bool(props, "show_markers", "Show Center Markers");
+	obs_properties_add_bool(props, "show_boxes", "Show boxes");
+	obs_properties_add_bool(props, "show_labels", "Show labels with coordinates");
 	obs_properties_add_color(props, "marker_color", "Marker Color");
 	obs_properties_add_float_slider(props, "curvature", "Curvature", 0.0f, 1.0f, 0.01f);
 	obs_properties_add_float_slider(props, "line_thickness", "Line Thickness", 1.0f, 20.0f, 0.5f);
+	obs_properties_add_bool(props, "show_lines", "Show lines");
 	obs_properties_add_color(props, "line_color", "Line Color");
 	obs_properties_add_bool(props, "dashed_lines", "Dashed Lines");
 	obs_properties_add_float_slider(props, "dash_length", "Dash Length", 1.0f, 100.0f, 1.0f);
 	obs_properties_add_float_slider(props, "gap_length", "Gap Length", 1.0f, 100.0f, 1.0f);
 	obs_properties_add_bool(props, "corner_style", "Corner Style");
 	obs_properties_add_float_slider(props, "corner_length", "Corner Length", 5.0f, 100.0f, 1.0f);
+	obs_properties_add_font(props, "font", "Font");
+	obs_properties_add_bool(props, "text_outline", "Outline");
+	obs_properties_add_color(props, "outline_color", "Outline Color");
+	obs_properties_add_int_slider(props, "outline_thickness", "Outline Thickness", 1, 10, 1);
+	obs_properties_add_color(props, "text_color", "Text Color");
 	return props;
 }
 
@@ -114,6 +150,22 @@ static void filter_update(void *data, obs_data_t *settings)
 	filter->box_color = (uint32_t)obs_data_get_int(settings, "box_color");
 	filter->line_color = (uint32_t)obs_data_get_int(settings, "line_color");
 	filter->marker_color = (uint32_t)obs_data_get_int(settings, "marker_color");
+	filter->show_boxes = obs_data_get_bool(settings, "show_boxes");
+	filter->show_labels = obs_data_get_bool(settings, "show_labels");
+	filter->show_lines = obs_data_get_bool(settings, "show_lines");
+	obs_data_t *font_obj = obs_data_get_obj(settings, "font");
+	const char *fn = obs_data_get_string(font_obj, "face");
+	strncpy(filter->font_name, fn, sizeof(filter->font_name) - 1);
+	filter->font_size = (int)obs_data_get_int(font_obj, "size");
+	obs_data_release(font_obj);
+	filter->text_outline = obs_data_get_bool(settings, "text_outline");
+	filter->outline_color = (uint32_t)obs_data_get_int(settings, "outline_color");
+	filter->outline_thickness = (int)obs_data_get_int(settings, "outline_thickness");
+	filter->text_color = (uint32_t)obs_data_get_int(settings, "text_color");
+	filter->scan_step = (int)obs_data_get_int(settings, "scan_step");
+	filter->frame_skip = (int)obs_data_get_int(settings, "frame_skip");
+	filter->min_blob_size = (int)obs_data_get_int(settings, "min_blob_size");
+	filter->smoothing = (float)obs_data_get_double(settings, "smoothing");
 }
 
 static void filter_defaults(obs_data_t *settings)
@@ -128,12 +180,30 @@ static void filter_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "box_color", 0xFFFFFFFF);
 	obs_data_set_default_int(settings, "line_color", 0xFFFFFFFF);
 	obs_data_set_default_int(settings, "marker_color", 0xFFFFFFFF);
+	obs_data_set_default_bool(settings, "show_lines", true);
+	obs_data_set_default_bool(settings, "show_boxes", true);
+	obs_data_set_default_bool(settings, "show_labels", true);
+	obs_data_t *font_obj = obs_data_create();
+	obs_data_set_string(font_obj, "face", "Arial");
+	obs_data_set_int(font_obj, "size", 20);
+	obs_data_set_default_obj(settings, "font", font_obj);
+	obs_data_release(font_obj);
+	obs_data_set_default_int(settings, "outline_color", 0x000000FF);
+	obs_data_set_default_int(settings, "outline_thickness", 2);
+	obs_data_set_default_int(settings, "text_color", 0xFFFFFFFF);
+	obs_data_set_default_int(settings, "scan_step", 2);
+	obs_data_set_default_int(settings, "frame_skip", 2);
+	obs_data_set_default_int(settings, "min_blob_size", 10);
+	obs_data_set_default_double(settings, "smoothing", 0.5);
 }
 
 static void *filter_create(obs_data_t *settings, obs_source_t *source)
 {
 	UNUSED_PARAMETER(settings);
 	struct tracery_data *filter = bzalloc(sizeof(struct tracery_data));
+	obs_enter_graphics();
+	filter->texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+	obs_leave_graphics();
 	filter->source = source;
 	filter_update(filter, settings);
 	obs_log(LOG_INFO, "Tracery filter created");
@@ -147,69 +217,13 @@ static void filter_destroy(void *data)
 	if (filter->stagesurface)
 		gs_stagesurface_destroy(filter->stagesurface);
 	obs_leave_graphics();
+	if (filter->texrender)
+		gs_texrender_destroy(filter->texrender);
 	bfree(filter);
 	obs_log(LOG_INFO, "Tracery filter destroyed");
 }
 
-static void render_text(const char *text, float x, float y)
-{
-	obs_log(LOG_INFO, "render_text called: %s at %.0f %.0f tw=%d th=%d", text, x, y, 0, 0);
-	HDC hdc = CreateCompatibleDC(NULL);
 
-	HFONT hfont = CreateFontA(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-				  CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial");
-	SelectObject(hdc, hfont);
-
-	SIZE text_size;
-	GetTextExtentPoint32A(hdc, text, (int)strlen(text), &text_size);
-	int tw = text_size.cx;
-	int th = text_size.cy;
-
-	BITMAPINFO bmi = {0};
-	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-	bmi.bmiHeader.biWidth = tw;
-	bmi.bmiHeader.biHeight = -th;
-	bmi.bmiHeader.biPlanes = 1;
-	bmi.bmiHeader.biBitCount = 32;
-	bmi.bmiHeader.biCompression = BI_RGB;
-
-	void *bits = NULL;
-	HBITMAP hbmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
-	SelectObject(hdc, hbmp);
-	memset(bits, 0, tw * th * 4);
-
-	SetBkMode(hdc, TRANSPARENT);
-	SetTextColor(hdc, RGB(255, 255, 255));
-	TextOutA(hdc, 0, 0, text, (int)strlen(text));
-	GdiFlush();
-
-	uint8_t *p = (uint8_t *)bits;
-	for (int i = 0; i < tw * th; i++) {
-		uint8_t b2 = p[i * 4 + 0];
-		uint8_t g2 = p[i * 4 + 1];
-		uint8_t r2 = p[i * 4 + 2];
-		if (r2 > 0 || g2 > 0 || b2 > 0)
-			p[i * 4 + 3] = 255;
-	}
-
-	gs_texture_t *tex = gs_texture_create(tw, th, GS_BGRA, 1, (const uint8_t **)&bits, 0);
-
-	gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
-	gs_effect_set_texture(image, tex);
-
-	while (gs_effect_loop(effect, "Draw")) {
-		gs_matrix_push();
-		gs_matrix_translate3f(x, y, 0.0f);
-		gs_draw_sprite(tex, 0, (uint32_t)tw, (uint32_t)th);
-		gs_matrix_pop();
-	}
-
-	gs_texture_destroy(tex);
-	DeleteObject(hbmp);
-	DeleteObject(hfont);
-	DeleteDC(hdc);
-}
 
 static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w, uint32_t h)
 {
@@ -219,9 +233,9 @@ static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint3
 
 	filter->blob_count = 0;
 
-	for (uint32_t y = 0; y < h; y++) {
+	for (uint32_t y = 0; y < h; y += filter->scan_step) {
 		uint8_t *row = ptr + y * linesize;
-		for (uint32_t x = 0; x < w; x++) {
+		for (uint32_t x = 0; x < w; x += filter->scan_step) {
 			uint8_t b = row[x * 4 + 0];
 			uint8_t g = row[x * 4 + 1];
 			uint8_t r = row[x * 4 + 2];
@@ -269,9 +283,35 @@ static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint3
 			}
 		}
 	}
+	//удаляем слишком маленькие боксы
+	int new_count = 0;
+	for (int i = 0; i < filter->blob_count; i++) {
+		if (filter->blobs[i].width >= filter->min_blob_size &&
+		    filter->blobs[i].height >= filter->min_blob_size) {
+			filter->blobs[new_count++] = filter->blobs[i];
+		}
+	}
+	filter->blob_count = new_count;
+
+	//сглаживаем позиции относительно предыдущего кадра
+	if (filter->prev_blob_count == filter->blob_count) {
+		for (int i = 0; i < filter->blob_count; i++) {
+			float s = filter->smoothing;
+			filter->blobs[i].x = (int)(filter->blobs[i].x * (1 - s) + filter->prev_blobs[i].x * s);
+			filter->blobs[i].y = (int)(filter->blobs[i].y * (1 - s) + filter->prev_blobs[i].y * s);
+			filter->blobs[i].width =
+				(int)(filter->blobs[i].width * (1 - s) + filter->prev_blobs[i].width * s);
+			filter->blobs[i].height =
+				(int)(filter->blobs[i].height * (1 - s) + filter->prev_blobs[i].height * s);
+		}
+	}
+
+	memcpy(filter->prev_blobs, filter->blobs, sizeof(struct blob) * filter->blob_count);
+	filter->prev_blob_count = filter->blob_count;
 }
 
-static void filter_draw_boxes(struct tracery_data* filter) {
+static void filter_draw_boxes(struct tracery_data *filter)
+{
 	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 	gs_eparam_t *color_param = gs_effect_get_param_by_name(solid, "color");
 
@@ -370,19 +410,100 @@ static void filter_draw_boxes(struct tracery_data* filter) {
 	}
 }
 
-static void filter_draw_labels(struct tracery_data *filter) {
+static void filter_draw_labels(struct tracery_data *filter)
+{
+	if (filter->blob_count == 0)
+		return;
+
+	int bw = (int)filter->width;
+	int bh = (int)filter->height;
+
+	HDC hdc = CreateCompatibleDC(NULL);
+	HFONT hfont = CreateFontA(filter->font_size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+				  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+				  DEFAULT_PITCH | FF_DONTCARE, filter->font_name);
+	SelectObject(hdc, hfont);
+
+	BITMAPINFO bmi = {0};
+	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bmi.bmiHeader.biWidth = bw;
+	bmi.bmiHeader.biHeight = -bh;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
+
+	void *bits = NULL;
+	HBITMAP hbmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+	SelectObject(hdc, hbmp);
+	memset(bits, 1, bw * bh * 4);
+	SetBkMode(hdc, TRANSPARENT);
+
+	uint8_t or2 = (filter->outline_color >> 0) & 0xFF;
+	uint8_t og = (filter->outline_color >> 8) & 0xFF;
+	uint8_t ob = (filter->outline_color >> 16) & 0xFF;
+	COLORREF outline_rgb = RGB(or2, og, ob);
+
+	uint8_t tr = (filter->text_color >> 0) & 0xFF;
+	uint8_t tg = (filter->text_color >> 8) & 0xFF;
+	uint8_t tb = (filter->text_color >> 16) & 0xFF;
+
 	for (int i = 0; i < filter->blob_count; i++) {
 		struct blob *b = &filter->blobs[i];
 		int cx = b->x + b->width / 2;
 		int cy = b->y + b->height / 2;
-
 		char label[64];
 		snprintf(label, sizeof(label), "x:%d y:%d", cx, cy);
-		render_text(label, (float)b->x, (float)(b->y - 22));
+		int len = (int)strlen(label);
+
+		int tx = b->x + filter->outline_thickness;
+		int ty = b->y - filter->font_size - 4 + filter->outline_thickness;
+
+		if (filter->text_outline) {
+			HPEN pen = CreatePen(PS_SOLID, filter->outline_thickness * 2, outline_rgb);
+			SelectObject(hdc, pen);
+			SelectObject(hdc, GetStockObject(NULL_BRUSH));
+			BeginPath(hdc);
+			TextOutA(hdc, tx, ty, label, len);
+			EndPath(hdc);
+			StrokePath(hdc);
+			DeleteObject(pen);
+		}
+
+		SetTextColor(hdc, RGB(tr, tg, tb));
+		TextOutA(hdc, tx, ty, label, len);
 	}
+
+	GdiFlush();
+
+	uint8_t *p = (uint8_t *)bits;
+	for (int i = 0; i < bw * bh; i++) {
+		if (p[i * 4 + 0] != 1 || p[i * 4 + 1] != 1 || p[i * 4 + 2] != 1) {
+			p[i * 4 + 3] = 255;
+		} else {
+			p[i * 4 + 0] = 0;
+			p[i * 4 + 1] = 0;
+			p[i * 4 + 2] = 0;
+			p[i * 4 + 3] = 0;
+		}
+	}
+
+	gs_texture_t *tex = gs_texture_create(bw, bh, GS_BGRA, 1, (const uint8_t **)&bits, 0);
+	gs_effect_t *eff = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+	gs_eparam_t *img = gs_effect_get_param_by_name(eff, "image");
+	gs_effect_set_texture(img, tex);
+
+	while (gs_effect_loop(eff, "Draw")) {
+		gs_draw_sprite(tex, 0, (uint32_t)bw, (uint32_t)bh);
+	}
+
+	gs_texture_destroy(tex);
+	DeleteObject(hbmp);
+	DeleteObject(hfont);
+	DeleteDC(hdc);
 }
 
-static void filter_draw_markers(struct tracery_data* filter) {
+static void filter_draw_markers(struct tracery_data *filter)
+{
 	gs_effect_t *solid2 = obs_get_base_effect(OBS_EFFECT_SOLID);
 	gs_eparam_t *color2 = gs_effect_get_param_by_name(solid2, "color");
 
@@ -524,23 +645,43 @@ static void filter_render(void *data, gs_effect_t *effect)
 
 	obs_source_skip_video_filter(filter->source);
 
-	gs_stage_texture(filter->stagesurface, gs_get_render_target());
+	filter->frame_counter++;
+	if (filter->frame_counter >= filter->frame_skip) {
+		filter->frame_counter = 0;
 
-	uint8_t *ptr;
-	uint32_t linesize;
-	if (gs_stagesurface_map(filter->stagesurface, &ptr, &linesize)) {
-		filter_detect_blobs(filter, ptr, linesize, w, h);
+		gs_texrender_reset(filter->texrender);
+		if (gs_texrender_begin(filter->texrender, w, h)) {
+			struct vec4 clear_color;
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)w, 0.0f, (float)h, -100.0f, 100.0f);
+			obs_source_video_render(obs_filter_get_target(filter->source));
+			gs_texrender_end(filter->texrender);
+		}
+
+		gs_stage_texture(filter->stagesurface, gs_texrender_get_texture(filter->texrender));
+
+		uint8_t *ptr;
+		uint32_t linesize;
+		if (gs_stagesurface_map(filter->stagesurface, &ptr, &linesize)) {
+			filter_detect_blobs(filter, ptr, linesize, w, h);
+			gs_stagesurface_unmap(filter->stagesurface);
+		}
 	}
 
-	filter_draw_boxes(filter);
-
-	filter_draw_labels(filter);
+	if (filter->show_boxes) {
+		filter_draw_boxes(filter);
+	}
+	if (filter->show_labels) {
+		filter_draw_labels(filter);
+	}
 
 	if (filter->show_markers) {
 		filter_draw_markers(filter);
 	}
-
-	filter_draw_connections(filter);
+	if (filter->show_lines) {
+		filter_draw_connections(filter);
+	}
 }
 
 static struct obs_source_info tracery_filter_info = {
