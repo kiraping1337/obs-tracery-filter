@@ -83,6 +83,11 @@ struct tracery_data {
 	struct blob prev_blobs[MAX_BLOBS];
 	int prev_blob_count;
 	float smoothing;
+
+	int grid_size;
+	int grid_threshold;
+
+	bool alternative_detection;
 };
 
 static const char *filter_get_name(void *unused)
@@ -104,32 +109,54 @@ static obs_properties_t *filter_properties(void *unused)
 	UNUSED_PARAMETER(unused);
 	obs_properties_t *props = obs_properties_create();
 
-	obs_properties_add_color(props, "key_color", "Key Color");
-	obs_properties_add_int_slider(props, "threshold", "Threshold", 0, 255, 1);
-	obs_properties_add_float_slider(props, "smoothing", "Smoothing", 0.0f, 0.95f, 0.05f);
-	obs_properties_add_int_slider(props, "min_distance", "Min Distance", 1, 500, 1);
-	obs_properties_add_int_slider(props, "min_blob_size", "Min Blob Size", 1, 200, 1);
-	obs_properties_add_int_slider(props, "scan_step", "Detection Quality (1=best)", 1, 8, 1);
-	obs_properties_add_int_slider(props, "frame_skip", "Update Every N Frames", 1, 10, 1);
-	obs_properties_add_color(props, "box_color", "Box Color");
-	obs_properties_add_bool(props, "show_markers", "Show Center Markers");
-	obs_properties_add_bool(props, "show_boxes", "Show boxes");
-	obs_properties_add_bool(props, "show_labels", "Show labels with coordinates");
-	obs_properties_add_color(props, "marker_color", "Marker Color");
-	obs_properties_add_float_slider(props, "curvature", "Curvature", 0.0f, 1.0f, 0.01f);
-	obs_properties_add_float_slider(props, "line_thickness", "Line Thickness", 1.0f, 20.0f, 0.5f);
-	obs_properties_add_bool(props, "show_lines", "Show lines");
-	obs_properties_add_color(props, "line_color", "Line Color");
-	obs_properties_add_bool(props, "dashed_lines", "Dashed Lines");
-	obs_properties_add_float_slider(props, "dash_length", "Dash Length", 1.0f, 100.0f, 1.0f);
-	obs_properties_add_float_slider(props, "gap_length", "Gap Length", 1.0f, 100.0f, 1.0f);
-	obs_properties_add_bool(props, "corner_style", "Corner Style");
-	obs_properties_add_float_slider(props, "corner_length", "Corner Length", 5.0f, 100.0f, 1.0f);
-	obs_properties_add_font(props, "font", "Font");
-	obs_properties_add_bool(props, "text_outline", "Outline");
-	obs_properties_add_color(props, "outline_color", "Outline Color");
-	obs_properties_add_int_slider(props, "outline_thickness", "Outline Thickness", 1, 10, 1);
-	obs_properties_add_color(props, "text_color", "Text Color");
+	obs_properties_t *detection = obs_properties_create();
+	obs_properties_add_color(detection, "key_color", "Key color");
+	obs_properties_add_int_slider(detection, "threshold", "Threshold", 0, 255, 1);
+	obs_properties_add_float_slider(detection, "smoothing", "Smoothing", 0.0f, 0.95f, 0.05f);
+	obs_properties_add_int_slider(detection, "min_distance", "Min distance", 1, 500, 1);
+	obs_properties_add_int_slider(detection, "min_blob_size", "Min blob size", 1, 200, 1);
+	obs_properties_add_int_slider(detection, "scan_step", "Detection quality (1=best)", 1, 8, 1);
+	obs_properties_add_int_slider(detection, "frame_skip", "Update every N frames", 1, 10, 1);
+	obs_properties_add_group(props, "detection_group", "Detection", OBS_GROUP_NORMAL, detection);
+
+	obs_properties_t *alternative_detection = obs_properties_create();
+	obs_properties_add_bool(alternative_detection, "alternative_detection", "Alternative detection");
+	obs_properties_add_int_slider(alternative_detection, "grid_size", "Grid cell size", 4, 64, 2);
+	obs_properties_add_int_slider(alternative_detection, "grid_threshold", "Cell threshold", 1, 100, 1);
+	obs_properties_add_group(props, "alternative_detection_group", "Alternative detection", OBS_GROUP_NORMAL,
+				 alternative_detection);
+
+	obs_properties_t *boxes = obs_properties_create();
+	obs_properties_add_color(boxes, "box_color", "Box color");
+	obs_properties_add_bool(boxes, "show_boxes", "Show boxes");
+	obs_properties_add_bool(boxes, "corner_style", "Corner style");
+	obs_properties_add_float_slider(boxes, "corner_length", "Corner length", 5.0f, 100.0f, 1.0f);
+	obs_properties_add_group(props, "boxes_group", "Bounding Boxes", OBS_GROUP_NORMAL, boxes);
+
+	obs_properties_t *markers = obs_properties_create();
+	obs_properties_add_bool(markers, "show_markers", "Show center markers");
+	obs_properties_add_color(markers, "marker_color", "Marker color");
+	obs_properties_add_group(props, "markers_group", "Markers", OBS_GROUP_NORMAL, markers);
+
+	obs_properties_t *labels = obs_properties_create();
+	obs_properties_add_bool(labels, "show_labels", "Show labels with coordinates");
+	obs_properties_add_font(labels, "font", "Font");
+	obs_properties_add_bool(labels, "text_outline", "Outline");
+	obs_properties_add_color(labels, "outline_color", "Outline color");
+	obs_properties_add_int_slider(labels, "outline_thickness", "Outline thickness", 1, 10, 1);
+	obs_properties_add_color(labels, "text_color", "Text color");
+	obs_properties_add_group(props, "labels_group", "Labels", OBS_GROUP_NORMAL, labels);
+
+	obs_properties_t *lines = obs_properties_create();
+	obs_properties_add_float_slider(lines, "curvature", "Curvature", 0.0f, 1.0f, 0.01f);
+	obs_properties_add_float_slider(lines, "line_thickness", "Line thickness", 1.0f, 20.0f, 0.5f);
+	obs_properties_add_bool(lines, "show_lines", "Show lines");
+	obs_properties_add_color(lines, "line_color", "Line color");
+	obs_properties_add_bool(lines, "dashed_lines", "Dashed lines");
+	obs_properties_add_float_slider(lines, "dash_length", "Dash length", 1.0f, 100.0f, 1.0f);
+	obs_properties_add_float_slider(lines, "gap_length", "Gap length", 1.0f, 100.0f, 1.0f);
+	obs_properties_add_group(props, "lines_group", "Connection Lines", OBS_GROUP_NORMAL, lines);
+
 	return props;
 }
 
@@ -166,6 +193,9 @@ static void filter_update(void *data, obs_data_t *settings)
 	filter->frame_skip = (int)obs_data_get_int(settings, "frame_skip");
 	filter->min_blob_size = (int)obs_data_get_int(settings, "min_blob_size");
 	filter->smoothing = (float)obs_data_get_double(settings, "smoothing");
+	filter->grid_size = (int)obs_data_get_int(settings, "grid_size");
+	filter->grid_threshold = (int)obs_data_get_int(settings, "grid_threshold");
+	filter->alternative_detection = obs_data_get_bool(settings, "alternative_detection");
 }
 
 static void filter_defaults(obs_data_t *settings)
@@ -195,6 +225,8 @@ static void filter_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "frame_skip", 2);
 	obs_data_set_default_int(settings, "min_blob_size", 10);
 	obs_data_set_default_double(settings, "smoothing", 0.5);
+	obs_data_set_default_int(settings, "grid_size", 16);
+	obs_data_set_default_int(settings, "grid_threshold", 3);
 }
 
 static void *filter_create(obs_data_t *settings, obs_source_t *source)
@@ -222,8 +254,6 @@ static void filter_destroy(void *data)
 	bfree(filter);
 	obs_log(LOG_INFO, "Tracery filter destroyed");
 }
-
-
 
 static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w, uint32_t h)
 {
@@ -306,6 +336,120 @@ static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint3
 		}
 	}
 
+	memcpy(filter->prev_blobs, filter->blobs, sizeof(struct blob) * filter->blob_count);
+	filter->prev_blob_count = filter->blob_count;
+}
+
+static void filter_detect_blobs_alternative(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w,
+					    uint32_t h)
+{
+	uint8_t kr = (filter->key_color >> 16) & 0xFF;
+	uint8_t kg = (filter->key_color >> 8) & 0xFF;
+	uint8_t kb = (filter->key_color) & 0xFF;
+
+	int gs = filter->grid_size;
+	int cols = (int)((w + gs - 1) / gs);
+	int rows = (int)((h + gs - 1) / gs);
+
+	bool active[64 * 64];
+	if (cols > 64)
+		cols = 64;
+	if (rows > 64)
+		rows = 64;
+	memset(active, 0, sizeof(active));
+
+	for (int gy = 0; gy < rows; gy++) {
+		for (int gx = 0; gx < cols; gx++) {
+			int count = 0;
+			int px0 = gx * gs;
+			int py0 = gy * gs;
+			int px1 = px0 + gs < (int)w ? px0 + gs : (int)w;
+			int py1 = py0 + gs < (int)h ? py0 + gs : (int)h;
+
+			for (int py = py0; py < py1; py += filter->scan_step) {
+				uint8_t *row = ptr + py * linesize;
+				for (int px = px0; px < px1; px += filter->scan_step) {
+					uint8_t b = row[px * 4 + 0];
+					uint8_t g = row[px * 4 + 1];
+					uint8_t r = row[px * 4 + 2];
+					if (color_match(r, g, b, kr, kg, kb, filter->threshold))
+						count++;
+				}
+			}
+			active[gy * cols + gx] = (count >= filter->grid_threshold);
+		}
+	}
+
+	filter->blob_count = 0;
+
+	for (int gy = 0; gy < rows; gy++) {
+		for (int gx = 0; gx < cols; gx++) {
+			if (!active[gy * cols + gx])
+				continue;
+
+			int px = gx * gs;
+			int py = gy * gs;
+
+			int nearest = -1;
+			for (int i = 0; i < filter->blob_count; i++) {
+				struct blob *bl = &filter->blobs[i];
+				int cx = bl->x + bl->width / 2;
+				int cy = bl->y + bl->height / 2;
+				int dx = px + gs / 2 - cx;
+				int dy = py + gs / 2 - cy;
+				int dist = dx * dx + dy * dy;
+				if (dist < filter->min_distance * filter->min_distance) {
+					nearest = i;
+					break;
+				}
+			}
+
+			if (nearest == -1) {
+				if (filter->blob_count < MAX_BLOBS) {
+					filter->blobs[filter->blob_count].x = px;
+					filter->blobs[filter->blob_count].y = py;
+					filter->blobs[filter->blob_count].width = gs;
+					filter->blobs[filter->blob_count].height = gs;
+					filter->blob_count++;
+				}
+			} else {
+				struct blob *bl = &filter->blobs[nearest];
+				int x2 = bl->x + bl->width;
+				int y2 = bl->y + bl->height;
+				if (px < bl->x)
+					bl->x = px;
+				if (py < bl->y)
+					bl->y = py;
+				if (px + gs > x2)
+					x2 = px + gs;
+				if (py + gs > y2)
+					y2 = py + gs;
+				bl->width = x2 - bl->x;
+				bl->height = y2 - bl->y;
+			}
+		}
+	}
+
+	int new_count = 0;
+	for (int i = 0; i < filter->blob_count; i++) {
+		if (filter->blobs[i].width >= filter->min_blob_size &&
+		    filter->blobs[i].height >= filter->min_blob_size) {
+			filter->blobs[new_count++] = filter->blobs[i];
+		}
+	}
+	filter->blob_count = new_count;
+
+	if (filter->prev_blob_count == filter->blob_count) {
+		for (int i = 0; i < filter->blob_count; i++) {
+			float s = filter->smoothing;
+			filter->blobs[i].x = (int)(filter->blobs[i].x * (1 - s) + filter->prev_blobs[i].x * s);
+			filter->blobs[i].y = (int)(filter->blobs[i].y * (1 - s) + filter->prev_blobs[i].y * s);
+			filter->blobs[i].width =
+				(int)(filter->blobs[i].width * (1 - s) + filter->prev_blobs[i].width * s);
+			filter->blobs[i].height =
+				(int)(filter->blobs[i].height * (1 - s) + filter->prev_blobs[i].height * s);
+		}
+	}
 	memcpy(filter->prev_blobs, filter->blobs, sizeof(struct blob) * filter->blob_count);
 	filter->prev_blob_count = filter->blob_count;
 }
@@ -664,7 +808,12 @@ static void filter_render(void *data, gs_effect_t *effect)
 		uint8_t *ptr;
 		uint32_t linesize;
 		if (gs_stagesurface_map(filter->stagesurface, &ptr, &linesize)) {
-			filter_detect_blobs(filter, ptr, linesize, w, h);
+			if (filter->alternative_detection) {
+				filter_detect_blobs_alternative(filter, ptr, linesize, w, h);
+			} else {
+				filter_detect_blobs(filter, ptr, linesize, w, h);
+			}
+
 			gs_stagesurface_unmap(filter->stagesurface);
 		}
 	}
