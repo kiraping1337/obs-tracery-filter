@@ -344,7 +344,8 @@ static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint3
 	filter->prev_blob_count = filter->blob_count;
 }
 
-static void filter_detect_blobs_alternative(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w, uint32_t h)
+static void filter_detect_blobs_alternative(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w,
+					    uint32_t h)
 {
 	uint8_t kr = (filter->key_color >> 16) & 0xFF;
 	uint8_t kg = (filter->key_color >> 8) & 0xFF;
