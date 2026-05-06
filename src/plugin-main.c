@@ -88,6 +88,7 @@ struct tracery_data {
 	int grid_threshold;
 
 	bool alternative_detection;
+	float boxes_thickness;
 };
 
 static const char *filter_get_name(void *unused)
@@ -128,6 +129,7 @@ static obs_properties_t *filter_properties(void *unused)
 
 	obs_properties_t *boxes = obs_properties_create();
 	obs_properties_add_color(boxes, "box_color", "Box color");
+	obs_properties_add_float_slider(boxes, "boxes_thickness", "Boxes thickness", 0.0f, 10.0f, 0.2f);
 	obs_properties_add_bool(boxes, "show_boxes", "Show boxes");
 	obs_properties_add_bool(boxes, "corner_style", "Corner style");
 	obs_properties_add_float_slider(boxes, "corner_length", "Corner length", 5.0f, 100.0f, 1.0f);
@@ -196,6 +198,7 @@ static void filter_update(void *data, obs_data_t *settings)
 	filter->grid_size = (int)obs_data_get_int(settings, "grid_size");
 	filter->grid_threshold = (int)obs_data_get_int(settings, "grid_threshold");
 	filter->alternative_detection = obs_data_get_bool(settings, "alternative_detection");
+	filter->boxes_thickness = (float)obs_data_get_double(settings, "boxes_thickness");
 }
 
 static void filter_defaults(obs_data_t *settings)
@@ -227,6 +230,7 @@ static void filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "smoothing", 0.5);
 	obs_data_set_default_int(settings, "grid_size", 16);
 	obs_data_set_default_int(settings, "grid_threshold", 3);
+	obs_data_set_default_double(settings, "boxes_thickness", 2.0);
 }
 
 static void *filter_create(obs_data_t *settings, obs_source_t *source)
@@ -340,8 +344,7 @@ static void filter_detect_blobs(struct tracery_data *filter, uint8_t *ptr, uint3
 	filter->prev_blob_count = filter->blob_count;
 }
 
-static void filter_detect_blobs_alternative(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w,
-					    uint32_t h)
+static void filter_detect_blobs_alternative(struct tracery_data *filter, uint8_t *ptr, uint32_t linesize, uint32_t w, uint32_t h)
 {
 	uint8_t kr = (filter->key_color >> 16) & 0xFF;
 	uint8_t kg = (filter->key_color >> 8) & 0xFF;
@@ -475,7 +478,7 @@ static void filter_draw_boxes(struct tracery_data *filter)
 			float y = (float)b->y;
 			float w2 = (float)b->width;
 			float h2 = (float)b->height;
-			float t = 2.0f; //толщина рамки
+			float t = filter->boxes_thickness; //толщина рамки
 
 			if (filter->corner_style) {
 				float cl = filter->corner_length;
