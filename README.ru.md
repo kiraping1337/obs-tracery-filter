@@ -1,3 +1,7 @@
+<div align="center">
+   <img width="480" height="270" alt="tracery (2)" src="https://github.com/user-attachments/assets/6b12ec6f-9a6a-497b-b5f4-6160626a2b23" />
+</div>
+
 # Tracery Filter — плагин для OBS
 
 Видеофильтр для OBS Studio, который в реальном времени находит области определённого цвета, рисует вокруг них рамки и соединяет их линиями. Вдохновлён плагином Tracery для Adobe After Effects.
