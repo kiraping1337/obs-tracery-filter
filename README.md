@@ -1,59 +1,122 @@
-# OBS Plugin Template
+[Читать на русском](README.ru.md)
 
-## Introduction
+# Tracery Filter — OBS Plugin
 
-The plugin template is meant to be used as a starting point for OBS Studio plugin development. It includes:
+A video filter plugin for OBS Studio that detects areas of a specific color in real time, draws bounding boxes around them, and connects them with animated lines. Inspired by the Tracery plugin for Adobe After Effects.
 
-* Boilerplate plugin source code
-* A CMake project file
-* GitHub Actions workflows and repository actions
+## Features
 
-## Supported Build Environments
+- **Color detection** — detects regions of a specified color using an adjustable threshold
+- **Bounding boxes** — draws rectangles around detected regions with customizable color and thickness
+- **Corner style** — option to draw only the corners of the bounding box instead of full sides
+- **Coordinate labels** — displays X/Y coordinates above each detected region with custom font, color and outline
+- **Connection lines** — connects detected regions with smooth bezier curves; supports dashed lines and adjustable thickness and curvature
+- **Center markers** — optional dot markers at the center of each region
+- **Two detection modes** — standard per-pixel detection and grid-based detection for more stable results on noisy sources (e.g. webcams)
+- **Smoothing** — temporal smoothing of bounding box positions between frames
+- **Performance controls** — adjustable scan step and frame skip to balance quality vs. CPU usage
+- Works on any OBS source: game capture, screen capture, webcam, video capture devices, and scenes
 
-| Platform  | Tool   |
-|-----------|--------|
-| Windows   | Visual Studio 17 2022 |
-| macOS     | XCode 16.0 |
-| Windows, macOS  | CMake 3.30.5 |
-| Ubuntu 24.04 | CMake 3.28.3 |
-| Ubuntu 24.04 | `ninja-build` |
-| Ubuntu 24.04 | `pkg-config`
-| Ubuntu 24.04 | `build-essential` |
+## Requirements
 
-## Quick Start
+- OBS Studio 30.0 or newer
+- Windows (the plugin uses Windows GDI for text rendering)
 
-An absolute bare-bones [Quick Start Guide](https://github.com/obsproject/obs-plugintemplate/wiki/Quick-Start-Guide) is available in the wiki.
+## Installation
 
-## Documentation
+1. Download the latest release from the [Releases](../../releases) page
+2. Copy `tracery-plugin-for-obs.dll` to:
+   ```
+   C:\Program Files\obs-studio\obs-plugins\64bit\
+   ```
+3. Copy the `data` folder contents to:
+   ```
+   C:\Program Files\obs-studio\data\obs-plugins\tracery-plugin-for-obs\
+   ```
+4. Restart OBS Studio
 
-All documentation can be found in the [Plugin Template Wiki](https://github.com/obsproject/obs-plugintemplate/wiki).
+## Usage
 
-Suggested reading to get up and running:
+1. Right-click any source in OBS → **Filters**
+2. Click **+** → select **Tracery Filter**
+3. Pick a **Key Color** to detect
+4. Adjust **Threshold** until the desired regions are highlighted
+5. Tune the remaining settings to your liking
 
-* [Getting started](https://github.com/obsproject/obs-plugintemplate/wiki/Getting-Started)
-* [Build system requirements](https://github.com/obsproject/obs-plugintemplate/wiki/Build-System-Requirements)
-* [Build system options](https://github.com/obsproject/obs-plugintemplate/wiki/CMake-Build-System-Options)
+## Settings
 
-## GitHub Actions & CI
+### Detection
+| Setting | Description |
+|---|---|
+| Key Color | The color to search for |
+| Threshold | How closely a pixel must match the key color (0 = exact) |
+| Smoothing | Temporal smoothing of blob positions between frames |
+| Min Distance | Minimum distance between separate blobs |
+| Min Blob Size | Minimum blob size in pixels; smaller blobs are ignored |
+| Detection Quality | Scan step size — higher values are faster but less precise |
+| Update Every N Frames | How often detection runs; higher values reduce CPU load |
 
-Default GitHub Actions workflows are available for the following repository actions:
+### Alternative Detection
+Grid-based detection mode — recommended for webcams and noisy sources.
 
-* `push`: Run for commits or tags pushed to `master` or `main` branches.
-* `pr-pull`: Run when a Pull Request has been pushed or synchronized.
-* `dispatch`: Run when triggered by the workflow dispatch in GitHub's user interface.
-* `build-project`: Builds the actual project and is triggered by other workflows.
-* `check-format`: Checks CMake and plugin source code formatting and is triggered by other workflows.
+| Setting | Description |
+|---|---|
+| Alternative Detection | Enable grid-based detection |
+| Grid Cell Size | Size of each grid cell in pixels |
+| Cell Threshold | Minimum number of matching pixels required to activate a cell |
 
-The workflows make use of GitHub repository actions (contained in `.github/actions`) and build scripts (contained in `.github/scripts`) which are not needed for local development, but might need to be adjusted if additional/different steps are required to build the plugin.
+### Bounding Boxes
+| Setting | Description |
+|---|---|
+| Show Boxes | Toggle bounding box visibility |
+| Box Color | Color of the bounding box |
+| Boxes Thickness | Line thickness of the bounding box |
+| Corner Style | Draw only corners instead of full sides |
+| Corner Length | Length of each corner segment |
 
-### Retrieving build artifacts
+### Labels
+| Setting | Description |
+|---|---|
+| Show Labels | Toggle coordinate label visibility |
+| Font | Font family and size |
+| Text Color | Label text color |
+| Outline | Enable text outline |
+| Outline Color | Outline color |
+| Outline Thickness | Outline thickness in pixels |
 
-Successful builds on GitHub Actions will produce build artifacts that can be downloaded for testing. These artifacts are commonly simple archives and will not contain package installers or installation programs.
+### Markers
+| Setting | Description |
+|---|---|
+| Show Center Markers | Toggle center dot markers |
+| Marker Color | Color of the markers |
 
-### Building a Release
+### Connection Lines
+| Setting | Description |
+|---|---|
+| Show Lines | Toggle connection lines |
+| Line Color | Color of the lines |
+| Line Thickness | Thickness of the lines |
+| Curvature | How curved the bezier lines are (0 = straight) |
+| Dashed Lines | Enable dashed line style |
+| Dash Length | Length of each dash |
+| Gap Length | Length of each gap between dashes |
 
-To create a release, an appropriately named tag needs to be pushed to the `main`/`master` branch using semantic versioning (e.g., `12.3.4`, `23.4.5-beta2`). A draft release will be created on the associated repository with generated installer packages or installation programs attached as release artifacts.
+## Building from Source
 
-## Signing and Notarizing on macOS
+### Requirements
+- Visual Studio 2022
+- CMake 3.30+
 
-Basic concepts of codesigning and notarization on macOS are explained in the correspodning [Wiki article](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS) which has a specific section for the [GitHub Actions setup](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS#setting-up-code-signing-for-github-actions).
+### Steps
+
+```cmd
+git clone https://github.com/kiraping1337/obs-tracery-filter.git
+cd obs-tracery-filter
+cmake --preset windows-x64
+cmake --build build_x64 --config RelWithDebInfo
+cmake --install build_x64 --config RelWithDebInfo
+```
+
+## License
+
+This plugin is licensed under the GNU General Public License v2. See [LICENSE](LICENSE) for details.
