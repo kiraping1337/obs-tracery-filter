@@ -1,3 +1,7 @@
+<div align="center">
+   <img width="480" height="270" alt="tracery (2)" src="https://github.com/user-attachments/assets/6b12ec6f-9a6a-497b-b5f4-6160626a2b23" />
+</div>
+
 [Читать на русском](README.ru.md)
 
 # Tracery Filter — OBS Plugin
